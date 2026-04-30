@@ -1,0 +1,14 @@
+Daily Zen Newsletter — {date}
+==============================
+
+SHORT THOUGHT
+"{quote_text_1}"
+  — {quote_author_1}
+
+TODAY'S REFLECTION
+"{quote_text_2}"
+  — {quote_author_2}
+
+SOMETHING TO SIT WITH
+"{quote_text_3}"
+  — {quote_author_3}
