@@ -4,3 +4,4 @@ apache-airflow-providers-amazon>=9.7.0
 apache-airflow-providers-common-messaging>=1.0.2
 aiobotocore
 boto3>=1.26.0
+s3fs

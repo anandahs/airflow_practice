@@ -91,7 +91,7 @@ def s3_ssm_ec2_pipeline():
 
         # Filter to CSV files and sort — oldest first
         csv_files = sorted([
-            k for k in (keys or [])
+            k for k in (keys or []) 
             if k.endswith(".csv")
         ])
 
