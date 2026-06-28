@@ -45,6 +45,57 @@ chmod +x scripts/manage_glue_role.sh
 ./scripts/manage_glue_role.sh destroy
 ```
 
+### 4. Deploy the Glue job script
+
+Once the `sparkaccess` role exists, upload `scripts/silver_layer.py` to S3 and create (or update) the Glue job to use it, with the `sparkaccess` role attached and Delta Lake enabled:
+
+```bash
+aws s3 cp scripts/silver_layer.py s3://airflow-aws-ananda/scripts/silver_layer.py
+
+aws glue create-job \
+  --name silver_layer \
+  --role sparkaccess \
+  --command "Name=glueetl,ScriptLocation=s3://airflow-aws-ananda/scripts/silver_layer.py" \
+  --default-arguments '{"--datalake-formats":"delta"}'
+```
+
+This step must happen after role creation — the job will fail to be created (or to run) if the `sparkaccess` role does not exist yet. Re-run the `aws s3 cp` command any time `silver_layer.py` changes; use `aws glue update-job` instead of `create-job` if the job already exists.
+
+The job expects a `load_date` parameter (e.g. `2026-06-27`) at runtime, used to read the corresponding `bronze/{load_date}/...` files from S3. This is not set as a job default-argument — it is passed per run via `--load_date` in the `Arguments` of `start_job_run`, as done by `trigger_spark_job` in [utils/silver_layer.py](utils/silver_layer.py).
+
+### 5. Deploy the Athena-compatible silver layer job
+
+`scripts/silver_layer_athena.py` runs the same bookings/airports/passengers join as `silver_layer.py`, but writes the result as **Parquet** (instead of Delta) to `s3://airflow-aws-ananda/silver/obt_parquet`. Athena cannot query Delta tables natively without extra setup (manifests or the Delta/Iceberg connector), so this script produces a plain Parquet table that Athena can query directly, e.g. via a Glue Crawler or `CREATE EXTERNAL TABLE` pointed at `silver/obt_parquet`.
+
+Deploy it the same way as the Delta job, with its own S3 location and Glue job name:
+
+```bash
+aws s3 cp scripts/silver_layer_athena.py s3://airflow-aws-ananda/scripts/silver_layer_athena.py
+
+aws glue create-job \
+  --name silver_layer_athena \
+  --role sparkaccess \
+  --command "Name=glueetl,ScriptLocation=s3://airflow-aws-ananda/scripts/silver_layer_athena.py"
+```
+
+Note this job does not need `--datalake-formats delta` since it writes Parquet, not Delta. It still requires the `load_date` runtime parameter described above.
+
+### 6. Create the Glue crawler for the silver layer
+
+After `silver_layer_athena.py` has written Parquet data to `s3://airflow-aws-ananda/silver/obt_parquet/`, run a Glue Crawler to catalog it so Athena can query it as a table. The helper script creates the `silver_db` database (if needed) and an `airflow_s3_crawler_silver` crawler pointed at that S3 path, using the `sparkaccess` role:
+
+```bash
+chmod +x scripts/manage_glue_crawler.sh
+./scripts/manage_glue_crawler.sh create
+./scripts/manage_glue_crawler.sh run
+```
+
+Re-run `./scripts/manage_glue_crawler.sh run` any time new data lands under `silver/obt_parquet/` to refresh the table schema/partitions in `silver_db`. Delete it with:
+
+```bash
+./scripts/manage_glue_crawler.sh destroy
+```
+
 ## What this script does
 
 The script creates an IAM role for AWS Glue and attaches the permissions Glue needs to run jobs successfully.
