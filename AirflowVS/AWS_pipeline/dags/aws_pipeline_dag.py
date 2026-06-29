@@ -5,6 +5,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from utils.bronze_layer import BronzeLayer
 from utils.silver_layer import SilverLayer
+from utils.gold_layer import GoldLayer
 from airflow.sdk import dag, task
 from datetime import datetime, timedelta
 
@@ -55,13 +56,23 @@ def aws_pipeline():
       craweler_id= obj.trigger_glue_crawler("airflow_s3_crawler_silver")
       print(f"Glue crawler is triggered with crawler_id:{craweler_id} to read parquet data")
 
+   @task.python(retries=3, retry_delay=timedelta(seconds=5))
+   def trigger_databricks_job():
+      obj = GoldLayer()
+      job_id=1004107495038505
+      response = obj.run_databricks_job(job_id)
+      print(f"databricks job trggered for job_id:{job_id} for gold layer")
+      print("response:{response}")
+
 
    extract_load = extract_load_to_s3()
    transfer_load = transform_load_s3()
    transform_load_s3_parquet = transform_load_s3_parquet()
    trigger_glue_crawler = trigger_glue_crawler()
+   trigger_databricks_job = trigger_databricks_job()
 
-   extract_load >> [transfer_load, transform_load_s3_parquet] >> trigger_glue_crawler
+   extract_load >> transfer_load >>  trigger_databricks_job
+   extract_load >> transform_load_s3_parquet >>  trigger_glue_crawler
 
 aws_pipeline()
 

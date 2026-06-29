@@ -1,5 +1,41 @@
 # AWS Pipeline
 
+## Architecture
+
+Airflow runs self-hosted (offshore/outside AWS, via Docker Compose in this repo) and orchestrates the pipeline entirely through AWS API calls (boto3) and the Databricks SDK — it never hosts data itself, only triggers and waits on remote jobs.
+
+```mermaid
+flowchart LR
+    subgraph Offshore["Offshore (self-hosted, outside AWS)"]
+        AF[Airflow<br/>docker-compose]
+    end
+
+    subgraph AWS["AWS"]
+        GH[GitHub raw CSVs] -->|extract_load_to_s3| S3B[(S3 bronze/)]
+        S3B -->|transform_load_s3<br/>Glue job: silver_layer.py| S3D[(S3 silver/obt<br/>Delta)]
+        S3B -->|transform_load_s3_parquet<br/>Glue job: silver_layer_athena.py| S3P[(S3 silver/obt_parquet<br/>Parquet)]
+        S3P -->|trigger_glue_crawler| GC[Glue Crawler<br/>airflow_s3_crawler_silver]
+        GC -->|catalogs schema into| GDB[(Glue Data Catalog<br/>silver_db)]
+        GDB -->|queried by| ATH[Athena]
+    end
+
+    subgraph Databricks["Databricks"]
+        DBX[trigger_databricks_job<br/>Gold layer job]
+    end
+
+    AF -->|start_job_run / poll| S3B
+    AF -->|start_job_run / poll| S3D
+    AF -->|start_job_run / poll| S3P
+    AF -->|start_crawler / poll| GC
+    AF -->|run_now / wait| DBX
+    S3D -->|read by| DBX
+```
+
+- **Bronze**: Airflow downloads CSVs from GitHub and writes them to `s3://airflow-aws-ananda/bronze/{load_date}/`.
+- **Silver**: Two Glue jobs read bronze CSVs and join them — one writes Delta (`silver/obt`) for Databricks, the other writes Parquet (`silver/obt_parquet`) for Athena.
+- **Catalog**: The Glue Crawler catalogs the Parquet silver data into the `silver_db` database in the Glue Data Catalog, which Athena queries directly (no separate Athena setup needed beyond the catalog).
+- **Gold**: A Databricks job (triggered via the Databricks SDK) reads the Delta silver table and produces gold-layer output.
+
 ## Setup
 
 Before running this project, create a `.env` file in this directory with the following environment variables:
