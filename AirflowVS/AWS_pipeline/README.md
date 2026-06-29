@@ -6,19 +6,10 @@ Airflow runs self-hosted (outside AWS, via Docker Compose in this repo) and orch
 
 ![AWS Pipeline Architecture](docs/architecture.png)
 
-Regenerate this diagram after changing the pipeline by editing `scripts/generate_architecture_diagram.py` and running:
-
-```bash
-pip install diagrams
-python3 scripts/generate_architecture_diagram.py
-```
-
-(requires Graphviz installed locally, e.g. `brew install graphviz`)
-
 - **Bronze**: Airflow downloads CSVs from GitHub and writes them to `s3://airflow-aws-ananda/bronze/{load_date}/`.
 - **Silver**: Two Glue jobs read bronze CSVs and join them — one writes Delta (`silver/obt`) for Databricks, the other writes Parquet (`silver/obt_parquet`) for Athena.
 - **Catalog**: The Glue Crawler catalogs the Parquet silver data into the `silver_db` database in the Glue Data Catalog, which Athena queries directly (no separate Athena setup needed beyond the catalog).
-- **Gold**: A Databricks job (triggered via the Databricks SDK) reads the Delta silver table and produces gold-layer output.
+- **Gold**: A Databricks job (triggered via the Databricks SDK) reads the Delta silver table and produces gold-layer output. This job (writing to `airflow_gold.gold_schema`) must already exist in your Databricks workspace beforehand — Airflow only triggers and waits on it via `run_now`, it does not create the job. Authentication to Databricks is via `DATABRICKS_PAT` (a personal access token) and `DATABRICKS_HOST`, both stored in `.env`.
 
 ### DAG run in Airflow
 
@@ -32,6 +23,8 @@ Before running this project, create a `.env` file in this directory with the fol
 AIRFLOW_UID=50000
 aws_access_key_id=<your-aws-access-key-id>
 aws_secret_access_key=<your-aws-secret-access-key>
+DATABRICKS_PAT=<your-databricks-personal-access-token>
+DATABRICKS_HOST=<your-databricks-workspace-host>
 ```
 
 `.env` is gitignored and should never be committed.
